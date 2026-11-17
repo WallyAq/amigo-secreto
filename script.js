@@ -6,6 +6,7 @@ const participantCount = document.querySelector("#participant-count");
 const sharedStatus = document.querySelector("#shared-status");
 const formMessage = document.querySelector("#form-message");
 const drawButton = document.querySelector("#draw-button");
+const resetButton = document.querySelector("#reset-button");
 const codesSection = document.querySelector("#codes-section");
 const codesStatus = document.querySelector("#codes-status");
 const organizerDetails = document.querySelector(".organizer-details");
@@ -23,6 +24,7 @@ let participants = [];
 let generatedCodes = [];
 let serverReady = false;
 let drawComplete = false;
+let activeDrawId = null;
 let mutationPending = false;
 let stateRequestPending = false;
 
@@ -58,8 +60,12 @@ function renderParticipants() {
   form.hidden = drawComplete;
   participantList.hidden = drawComplete;
   drawButton.hidden = drawComplete;
+  resetButton.hidden =
+    !serverReady || (!drawComplete && participants.length === 0);
   nameInput.disabled = !serverReady || mutationPending || stateRequestPending;
   addButton.disabled = !serverReady || mutationPending || stateRequestPending;
+  resetButton.disabled =
+    !serverReady || mutationPending || stateRequestPending;
   drawButton.disabled =
     !serverReady ||
     mutationPending ||
@@ -95,11 +101,21 @@ function applySharedState(state) {
     !state.participants.every(
       (name) => typeof name === "string" && name.trim().length > 0,
     ) ||
-    typeof state.draw_complete !== "boolean"
+    typeof state.draw_complete !== "boolean" ||
+    (state.draw_id !== null && typeof state.draw_id !== "string") ||
+    state.draw_complete !== (state.draw_id !== null)
   ) {
     throw new Error("O Supabase retornou a lista compartilhada em formato inválido.");
   }
 
+  if (state.draw_id !== activeDrawId) {
+    generatedCodes = [];
+    codeList.replaceChildren();
+    organizerDetails.open = false;
+    clearPersonalResult();
+    codeInput.value = "";
+  }
+  activeDrawId = state.draw_id;
   participants = state.participants;
   drawComplete = state.draw_complete;
   serverReady = true;
@@ -294,6 +310,7 @@ async function startDraw() {
     const result = await callRpc("create_shared_secret_draw", {});
     if (
       !result ||
+      typeof result.draw_id !== "string" ||
       !Array.isArray(result.codes) ||
       result.codes.length < 2 ||
       result.codes.some(
@@ -309,6 +326,7 @@ async function startDraw() {
     }
 
     participants = result.codes.map((item) => item.name);
+    activeDrawId = result.draw_id;
     drawComplete = true;
     formMessage.textContent = "";
     renderParticipants();
@@ -328,6 +346,36 @@ async function startDraw() {
 
   if (shouldRefresh) {
     await loadSharedState(true);
+  }
+}
+
+async function resetSharedEvent() {
+  if (!serverReady || mutationPending || stateRequestPending) {
+    return;
+  }
+
+  if (
+    !window.confirm(
+      "Isso apagará a lista e o sorteio atual, invalidará os códigos e permitirá começar de novo. Continuar?",
+    )
+  ) {
+    return;
+  }
+
+  mutationPending = true;
+  formMessage.textContent = "Zerando a lista compartilhada...";
+  renderParticipants();
+
+  try {
+    const state = await callRpc("reset_secret_event", {});
+    applySharedState(state);
+    formMessage.textContent = "";
+    nameInput.focus();
+  } catch (error) {
+    formMessage.textContent = `Não foi possível zerar o sorteio. ${error.message}`;
+  } finally {
+    mutationPending = false;
+    renderParticipants();
   }
 }
 
@@ -397,6 +445,7 @@ codeInput.addEventListener("input", () => {
 form.addEventListener("submit", addParticipant);
 codeForm.addEventListener("submit", showPersonalResult);
 drawButton.addEventListener("click", startDraw);
+resetButton.addEventListener("click", resetSharedEvent);
 hideResultButton.addEventListener("click", clearPersonalResult);
 downloadCodesButton.addEventListener("click", downloadCodes);
 

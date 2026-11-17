@@ -182,7 +182,8 @@ set search_path = ''
 as $$
   select jsonb_build_object(
     'participants', to_jsonb(event_state.participants),
-    'draw_complete', event_state.draw_id is not null
+    'draw_complete', event_state.draw_id is not null,
+    'draw_id', event_state.draw_id
   )
     from public.secret_event_state as event_state
    where event_state.event_id = 1;
@@ -233,7 +234,8 @@ begin
 
   return jsonb_build_object(
     'participants', to_jsonb(v_names),
-    'draw_complete', false
+    'draw_complete', false,
+    'draw_id', null
   );
 end;
 $$;
@@ -282,7 +284,8 @@ begin
 
   return jsonb_build_object(
     'participants', to_jsonb(v_names),
-    'draw_complete', false
+    'draw_complete', false,
+    'draw_id', null
   );
 end;
 $$;
@@ -301,6 +304,12 @@ declare
   v_code_hash bytea;
   v_codes jsonb := '[]'::jsonb;
   v_index integer;
+  v_range_size bigint;
+  v_random_bytes bytea;
+  v_random_value bigint;
+  v_random_limit bigint;
+  v_random_index integer;
+  v_swap text;
 begin
   select event_state.participants, event_state.draw_id
     into v_names, v_draw_id
@@ -317,9 +326,27 @@ begin
   end if;
 
   loop
-    select array_agg(candidate.name order by extensions.gen_random_bytes(16))
-      into v_recipients
-      from unnest(v_names) as candidate(name);
+    v_recipients := v_names;
+
+    for v_index in reverse cardinality(v_names)..2 loop
+      v_range_size := v_index;
+      v_random_limit := (4294967296::bigint / v_range_size) * v_range_size;
+
+      loop
+        v_random_bytes := extensions.gen_random_bytes(4);
+        v_random_value :=
+          get_byte(v_random_bytes, 0)::bigint * 16777216 +
+          get_byte(v_random_bytes, 1)::bigint * 65536 +
+          get_byte(v_random_bytes, 2)::bigint * 256 +
+          get_byte(v_random_bytes, 3)::bigint;
+        exit when v_random_value < v_random_limit;
+      end loop;
+
+      v_random_index := (v_random_value % v_range_size)::integer + 1;
+      v_swap := v_recipients[v_index];
+      v_recipients[v_index] := v_recipients[v_random_index];
+      v_recipients[v_random_index] := v_swap;
+    end loop;
 
     exit when not exists (
       select 1
@@ -367,14 +394,52 @@ begin
 end;
 $$;
 
+create or replace function public.reset_secret_event()
+returns jsonb
+language plpgsql
+security definer
+set search_path = ''
+as $$
+declare
+  v_draw_id uuid;
+begin
+  select event_state.draw_id
+    into v_draw_id
+    from public.secret_event_state as event_state
+   where event_state.event_id = 1
+   for update;
+
+  update public.secret_event_state
+     set participants = '{}'::text[],
+         draw_id = null
+   where event_id = 1;
+
+  if v_draw_id is not null then
+    delete from public.draw_participants
+     where draw_id = v_draw_id;
+
+    delete from public.secret_draws
+     where id = v_draw_id;
+  end if;
+
+  return jsonb_build_object(
+    'participants', to_jsonb('{}'::text[]),
+    'draw_complete', false,
+    'draw_id', null
+  );
+end;
+$$;
+
 revoke all on function public.create_secret_draw(text[]) from public, anon, authenticated;
 revoke all on function public.get_secret_event_state() from public;
 revoke all on function public.add_secret_participant(text) from public;
 revoke all on function public.remove_secret_participant(text) from public;
 revoke all on function public.create_shared_secret_draw() from public;
+revoke all on function public.reset_secret_event() from public;
 grant execute on function public.get_secret_event_state() to anon, authenticated;
 grant execute on function public.add_secret_participant(text) to anon, authenticated;
 grant execute on function public.remove_secret_participant(text) to anon, authenticated;
 grant execute on function public.create_shared_secret_draw() to anon, authenticated;
+grant execute on function public.reset_secret_event() to anon, authenticated;
 
 notify pgrst, 'reload schema';
