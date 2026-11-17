@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#f5f2eb" />
+    <title>Amigo Secreto</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script src="script.js" defer></script>
+  </head>
+  <body>
+    <main class="app">
+      <header class="hero">
+        <p class="eyebrow">UMA SURPRESA ESPECIAL</p>
+        <h1>Amigo <span>Secreto</span></h1>
+        <p class="intro">
+          Adicione os participantes e distribua um código individual para cada
+          pessoa consultar seu resultado em particular.
+        </p>
+      </header>
+
+      <section class="panel" aria-labelledby="participants-heading">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">PRIMEIRO PASSO</p>
+            <h2 id="participants-heading">Quem vai participar?</h2>
+          </div>
+          <span class="participant-count" id="participant-count">0 pessoas</span>
+        </div>
+
+        <form class="add-form" id="participant-form">
+          <label class="sr-only" for="participant-name">Nome da pessoa</label>
+          <input
+            id="participant-name"
+            name="name"
+            type="text"
+            placeholder="Digite um nome"
+            maxlength="60"
+            autocomplete="off"
+            required
+          />
+          <button class="button button-dark" type="submit">Adicionar</button>
+        </form>
+
+        <p class="message" id="form-message" role="status" aria-live="polite"></p>
+
+        <ul class="participant-list" id="participant-list" aria-label="Participantes"></ul>
+
+        <button class="button button-primary draw-button" id="draw-button" type="button" disabled>
+          <span aria-hidden="true">✳</span> Sortear amigo secreto
+        </button>
+      </section>
+
+      <section class="codes-section panel" id="codes-section" aria-labelledby="codes-heading" hidden>
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">SORTEIO CONCLUÍDO</p>
+            <h2 id="codes-heading">Códigos individuais</h2>
+          </div>
+          <span class="result-icon" aria-hidden="true">🔐</span>
+        </div>
+        <p class="results-intro">
+          Distribua cada código em particular. A pessoa deve guardar o próprio
+          código para consultar o resultado.
+        </p>
+        <details class="organizer-details">
+          <summary>Área do organizador: mostrar códigos</summary>
+          <p class="organizer-note">
+            Não compartilhe esta lista. Envie cada código somente à pessoa
+            correspondente.
+          </p>
+          <ul class="code-list" id="code-list"></ul>
+          <button class="button button-light" id="redraw-button" type="button">
+            Sortear novamente
+          </button>
+        </details>
+      </section>
+
+      <section class="access-section panel" id="access-section" aria-labelledby="access-heading" hidden>
+        <div>
+          <p class="eyebrow">CONSULTA INDIVIDUAL</p>
+          <h2 id="access-heading">Consulte seu resultado</h2>
+        </div>
+        <p class="results-intro">
+          Digite seu código. A tela mostrará somente a pessoa que você tirou.
+        </p>
+        <form class="add-form" id="code-form">
+          <label class="sr-only" for="access-code">Seu código individual</label>
+          <input
+            id="access-code"
+            name="code"
+            type="text"
+            placeholder="Seu código de 8 caracteres"
+            maxlength="8"
+            autocomplete="one-time-code"
+            autocapitalize="characters"
+            required
+          />
+          <button class="button button-dark" type="submit">Consultar</button>
+        </form>
+        <p class="message" id="code-message" role="status" aria-live="polite"></p>
+        <div class="personal-result" id="personal-result" hidden>
+          <p>Você tirou:</p>
+          <strong id="recipient-name"></strong>
+          <button class="button button-light" id="hide-result-button" type="button">
+            Ocultar resultado
+          </button>
+        </div>
+      </section>
+
+      <footer>Feito para compartilhar bons momentos.</footer>
+    </main>
+  </body>
+</html>
