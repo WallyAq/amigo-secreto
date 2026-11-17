@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#f5f2eb" />
     <title>Amigo Secreto</title>
     <link rel="stylesheet" href="styles.css" />
+    <script src="supabase-config.js"></script>
     <script src="script.js" defer></script>
   </head>
   <body>
@@ -39,7 +40,7 @@
             autocomplete="off"
             required
           />
-          <button class="button button-dark" type="submit">Adicionar</button>
+          <button class="button button-dark" id="add-participant-button" type="submit">Adicionar</button>
         </form>
 
         <p class="message" id="form-message" role="status" aria-live="polite"></p>
@@ -70,19 +71,20 @@
             correspondente.
           </p>
           <ul class="code-list" id="code-list"></ul>
-          <button class="button button-light" id="redraw-button" type="button">
-            Sortear novamente
+          <button class="button button-light" id="download-codes-button" type="button">
+            Baixar lista privada de códigos
           </button>
         </details>
       </section>
 
-      <section class="access-section panel" id="access-section" aria-labelledby="access-heading" hidden>
+      <section class="access-section panel" id="access-section" aria-labelledby="access-heading">
         <div>
           <p class="eyebrow">CONSULTA INDIVIDUAL</p>
           <h2 id="access-heading">Consulte seu resultado</h2>
         </div>
         <p class="results-intro">
-          Digite seu código. A tela mostrará somente a pessoa que você tirou.
+          Digite seu código de uso único. A tela mostrará somente a pessoa que
+          você tirou.
         </p>
         <form class="add-form" id="code-form">
           <label class="sr-only" for="access-code">Seu código individual</label>
@@ -90,13 +92,13 @@
             id="access-code"
             name="code"
             type="text"
-            placeholder="Seu código de 8 caracteres"
-            maxlength="8"
+            placeholder="Seu código de 16 caracteres"
+            maxlength="16"
             autocomplete="one-time-code"
             autocapitalize="characters"
             required
           />
-          <button class="button button-dark" type="submit">Consultar</button>
+          <button class="button button-dark" id="code-submit-button" type="submit">Consultar</button>
         </form>
         <p class="message" id="code-message" role="status" aria-live="polite"></p>
         <div class="personal-result" id="personal-result" hidden>
