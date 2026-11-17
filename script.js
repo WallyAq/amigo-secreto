@@ -3,9 +3,12 @@ const nameInput = document.querySelector("#participant-name");
 const addButton = document.querySelector("#add-participant-button");
 const participantList = document.querySelector("#participant-list");
 const participantCount = document.querySelector("#participant-count");
+const sharedStatus = document.querySelector("#shared-status");
 const formMessage = document.querySelector("#form-message");
 const drawButton = document.querySelector("#draw-button");
 const codesSection = document.querySelector("#codes-section");
+const codesStatus = document.querySelector("#codes-status");
+const organizerDetails = document.querySelector(".organizer-details");
 const codeList = document.querySelector("#code-list");
 const codeForm = document.querySelector("#code-form");
 const codeInput = document.querySelector("#access-code");
@@ -18,8 +21,10 @@ const downloadCodesButton = document.querySelector("#download-codes-button");
 
 let participants = [];
 let generatedCodes = [];
+let serverReady = false;
 let drawComplete = false;
-let drawPending = false;
+let mutationPending = false;
+let stateRequestPending = false;
 
 function clearPersonalResult() {
   personalResult.hidden = true;
@@ -39,17 +44,10 @@ function renderParticipants() {
     const removeButton = document.createElement("button");
     removeButton.className = "remove-button";
     removeButton.type = "button";
-    removeButton.disabled = drawPending;
+    removeButton.disabled = !serverReady || mutationPending || stateRequestPending;
     removeButton.setAttribute("aria-label", `Remover ${name}`);
     removeButton.textContent = "×";
-    removeButton.addEventListener("click", () => {
-      if (drawPending) {
-        return;
-      }
-      participants.splice(index, 1);
-      formMessage.textContent = "";
-      renderParticipants();
-    });
+    removeButton.addEventListener("click", () => removeParticipant(name));
 
     item.append(label, removeButton);
     participantList.append(item);
@@ -60,9 +58,13 @@ function renderParticipants() {
   form.hidden = drawComplete;
   participantList.hidden = drawComplete;
   drawButton.hidden = drawComplete;
-  nameInput.disabled = drawPending;
-  addButton.disabled = drawPending;
-  drawButton.disabled = drawPending || participants.length < 2;
+  nameInput.disabled = !serverReady || mutationPending || stateRequestPending;
+  addButton.disabled = !serverReady || mutationPending || stateRequestPending;
+  drawButton.disabled =
+    !serverReady ||
+    mutationPending ||
+    stateRequestPending ||
+    participants.length < 2;
 }
 
 function renderCodeList(codes) {
@@ -84,6 +86,45 @@ function renderCodeList(codes) {
     item.append(participant, accessCode);
     codeList.append(item);
   });
+}
+
+function applySharedState(state) {
+  if (
+    !state ||
+    !Array.isArray(state.participants) ||
+    !state.participants.every(
+      (name) => typeof name === "string" && name.trim().length > 0,
+    ) ||
+    typeof state.draw_complete !== "boolean"
+  ) {
+    throw new Error("O Supabase retornou a lista compartilhada em formato inválido.");
+  }
+
+  participants = state.participants;
+  drawComplete = state.draw_complete;
+  serverReady = true;
+
+  if (drawComplete) {
+    codesSection.hidden = false;
+    if (generatedCodes.length === 0) {
+      organizerDetails.hidden = true;
+      codesStatus.hidden = false;
+      codesStatus.textContent =
+        "O sorteio já foi realizado. Por segurança, os códigos não podem ser recuperados; use a lista que foi baixada ou distribuída no momento do sorteio.";
+    } else {
+      organizerDetails.hidden = false;
+      codesStatus.hidden = true;
+    }
+  } else {
+    codesSection.hidden = true;
+    codesStatus.hidden = true;
+    organizerDetails.hidden = false;
+  }
+
+  sharedStatus.textContent = drawComplete
+    ? "O sorteio desta lista já foi realizado."
+    : "Lista compartilhada: todos podem adicionar e remover nomes.";
+  renderParticipants();
 }
 
 function getSupabaseConfig() {
@@ -111,17 +152,14 @@ function getSupabaseConfig() {
 
 async function callRpc(functionName, payload) {
   const config = getSupabaseConfig();
-  const response = await fetch(
-    `${config.url}/rest/v1/rpc/${functionName}`,
-    {
-      method: "POST",
-      headers: {
-        apikey: config.publishableKey,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(payload),
+  const response = await fetch(`${config.url}/rest/v1/rpc/${functionName}`, {
+    method: "POST",
+    headers: {
+      apikey: config.publishableKey,
+      "Content-Type": "application/json",
     },
-  );
+    body: JSON.stringify(payload),
+  });
   const responseText = await response.text();
   let responseData = null;
 
@@ -139,52 +177,157 @@ async function callRpc(functionName, payload) {
     const message =
       responseData &&
       (responseData.message || responseData.error_description || responseData.error);
-    throw new Error(message || `Falha na comunicação com o Supabase (${response.status}).`);
+    throw new Error(
+      message || `Falha na comunicação com o Supabase (${response.status}).`,
+    );
   }
 
   return responseData;
 }
 
-async function startDraw() {
-  if (participants.length < 2 || drawPending) {
+async function loadSharedState(silent = false) {
+  if (stateRequestPending || mutationPending) {
     return;
   }
 
-  drawPending = true;
-  formMessage.textContent = "Salvando participantes e realizando o sorteio...";
+  stateRequestPending = true;
+  renderParticipants();
+  try {
+    const state = await callRpc("get_secret_event_state", {});
+    applySharedState(state);
+    if (!silent) {
+      formMessage.textContent = "";
+    }
+  } catch (error) {
+    if (!silent || !serverReady) {
+      formMessage.textContent = `Não foi possível carregar a lista compartilhada. ${error.message}`;
+    } else {
+      sharedStatus.textContent = `Não foi possível atualizar a lista. ${error.message}`;
+    }
+  } finally {
+    stateRequestPending = false;
+    renderParticipants();
+  }
+}
+
+async function addParticipant(event) {
+  event.preventDefault();
+  if (!serverReady || mutationPending || stateRequestPending || drawComplete) {
+    return;
+  }
+
+  const name = nameInput.value.trim();
+  if (!name) {
+    formMessage.textContent = "Digite um nome para adicionar.";
+    nameInput.focus();
+    return;
+  }
+
+  if (
+    participants.some(
+      (participant) =>
+        participant.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"),
+    )
+  ) {
+    formMessage.textContent = "Esse nome já está na lista compartilhada.";
+    nameInput.focus();
+    return;
+  }
+
+  mutationPending = true;
+  formMessage.textContent = "Salvando o nome para todos...";
   renderParticipants();
 
   try {
-    const result = await callRpc("create_secret_draw", {
-      p_names: participants,
-    });
+    const state = await callRpc("add_secret_participant", { p_name: name });
+    applySharedState(state);
+    nameInput.value = "";
+    formMessage.textContent = "";
+    nameInput.focus();
+  } catch (error) {
+    formMessage.textContent = `Não foi possível salvar o nome. ${error.message}`;
+  } finally {
+    mutationPending = false;
+    renderParticipants();
+  }
+}
 
+async function removeParticipant(name) {
+  if (!serverReady || mutationPending || stateRequestPending || drawComplete) {
+    return;
+  }
+
+  mutationPending = true;
+  formMessage.textContent = "Atualizando a lista compartilhada...";
+  renderParticipants();
+
+  try {
+    const state = await callRpc("remove_secret_participant", {
+      p_name: name,
+    });
+    applySharedState(state);
+    formMessage.textContent = "";
+  } catch (error) {
+    formMessage.textContent = `Não foi possível remover o nome. ${error.message}`;
+  } finally {
+    mutationPending = false;
+    renderParticipants();
+  }
+}
+
+async function startDraw() {
+  if (
+    participants.length < 2 ||
+    !serverReady ||
+    mutationPending ||
+    stateRequestPending
+  ) {
+    return;
+  }
+
+  mutationPending = true;
+  formMessage.textContent = "Salvando a lista e realizando o sorteio...";
+  renderParticipants();
+  let shouldRefresh = false;
+
+  try {
+    const result = await callRpc("create_shared_secret_draw", {});
     if (
       !result ||
       !Array.isArray(result.codes) ||
-      result.codes.length !== participants.length ||
+      result.codes.length < 2 ||
       result.codes.some(
         (item) =>
           !item ||
-          !participants.includes(item.name) ||
+          typeof item.name !== "string" ||
           typeof item.code !== "string" ||
           !/^[0-9A-F]{16}$/.test(item.code),
-      )
+      ) ||
+      new Set(result.codes.map((item) => item.name)).size !== result.codes.length
     ) {
       throw new Error("O Supabase retornou códigos em um formato inesperado.");
     }
 
+    participants = result.codes.map((item) => item.name);
     drawComplete = true;
     formMessage.textContent = "";
     renderParticipants();
     renderCodeList(result.codes);
+    codesStatus.hidden = true;
+    organizerDetails.hidden = false;
+    organizerDetails.open = true;
     codesSection.hidden = false;
     codesSection.scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (error) {
     formMessage.textContent = `Não foi possível criar o sorteio. ${error.message}`;
+    shouldRefresh = true;
   } finally {
-    drawPending = false;
+    mutationPending = false;
     renderParticipants();
+  }
+
+  if (shouldRefresh) {
+    await loadSharedState(true);
   }
 }
 
@@ -246,45 +389,18 @@ async function showPersonalResult(event) {
   }
 }
 
-form.addEventListener("submit", (event) => {
-  event.preventDefault();
-  if (drawPending || drawComplete) {
-    return;
-  }
-
-  const name = nameInput.value.trim();
-  if (!name) {
-    formMessage.textContent = "Digite um nome para adicionar.";
-    nameInput.focus();
-    return;
-  }
-
-  const alreadyExists = participants.some(
-    (participant) =>
-      participant.toLocaleLowerCase("pt-BR") === name.toLocaleLowerCase("pt-BR"),
-  );
-
-  if (alreadyExists) {
-    formMessage.textContent = "Esse nome já está na lista.";
-    nameInput.focus();
-    return;
-  }
-
-  participants.push(name);
-  nameInput.value = "";
-  formMessage.textContent = "";
-  renderParticipants();
-  nameInput.focus();
-});
-
 codeInput.addEventListener("input", () => {
   clearPersonalResult();
   codeMessage.textContent = "";
 });
 
+form.addEventListener("submit", addParticipant);
 codeForm.addEventListener("submit", showPersonalResult);
 drawButton.addEventListener("click", startDraw);
 hideResultButton.addEventListener("click", clearPersonalResult);
 downloadCodesButton.addEventListener("click", downloadCodes);
 
 renderParticipants();
+formMessage.textContent = "Carregando a lista compartilhada...";
+loadSharedState();
+window.setInterval(() => loadSharedState(true), 5000);
