@@ -143,25 +143,17 @@ begin
 
   v_code_hash := extensions.digest(upper(btrim(p_code)), 'sha256');
 
-  update public.draw_participants
-     set used_at = clock_timestamp()
+  select recipient_name
+    into v_recipient_name
+    from public.draw_participants
    where code_hash = v_code_hash
-     and used_at is null
-  returning recipient_name into v_recipient_name;
+   limit 1;
 
-  if found then
+  if v_recipient_name is not null then
     return jsonb_build_object(
       'status', 'ok',
       'recipient', v_recipient_name
     );
-  end if;
-
-  if exists (
-    select 1
-      from public.draw_participants
-     where code_hash = v_code_hash
-  ) then
-    return jsonb_build_object('status', 'used');
   end if;
 
   return jsonb_build_object('status', 'invalid');

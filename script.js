@@ -415,12 +415,6 @@ async function showPersonalResult(event) {
       p_code: code,
     });
 
-    if (result && result.status === "used") {
-      codeMessage.textContent =
-        "Este código já foi consultado e não pode ser usado novamente.";
-      return;
-    }
-
     if (!result || result.status !== "ok" || typeof result.recipient !== "string") {
       codeMessage.textContent = "Código inválido. Confira o código e tente novamente.";
       return;
